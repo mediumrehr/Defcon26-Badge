@@ -2,15 +2,19 @@
 // combines all major hardware aspects (led, oled, keypad, ble)
 
 // split into functional regions
-#include "dczia26.h"
+//#include "dczia26.h"
 #include "dczia26_keypad.h"
 #include "dczia26_led.h"
 #include "dczia26_oled.h"
 #include "dczia26_ble.h"
 #include "dczia26_sd.h"
 
-#define COLOR_GREEN HslColor(120.0 / 360.0, 1.0, 0.5)
-#define COLOR_BLUE HslColor(240.0 / 360.0, 1.0, 0.05)
+#define COLOR_GREEN   HslColor(120.0 / 360.0, 1.0, 0.5)
+#define COLOR_BLUE    HslColor(240.0 / 360.0, 1.0, 0.05)
+#define COLOR_RED     HslColor(10.0 / 360.0, 1.0, 0.5)
+#define COLOR_PURPLE  HslColor(270.0 / 360.0, 1.0, 0.5)
+
+#define ZINTH_ADD_ON_ADDR 0x021A // zinthesizer i2c address
 
 // Global variables
 Adafruit_SSD1306   *oled = NULL; // uses v3.xx from "esp8266 and esp32 oled driver for ssd1306 display" (https://github.com/ThingPulse/esp8266-oled-ssd1306)
@@ -79,6 +83,7 @@ void loop(void) {
   // Store what mode we're currently in
   static char mode = '1';
   static char oldMode = '1';
+  static uint8_t currPressed = 16;
 
   // Determine if we've changed the mode.  Use this to initialize the animations
   static boolean newmode = true;
@@ -86,6 +91,13 @@ void loop(void) {
   // Is menu mode selected?
   if (keys->getState('D') == HOLD) {
       // User wants to select a new mode, jump to menu mode
+      if (mode == '7') {
+        // turn off APU if previously in zinth mode
+        Wire.beginTransmission(ZINTH_ADD_ON_ADDR);
+        Wire.write(129); // 129: note off
+        Wire.write(100); // volume doesn't really matter
+        Wire.endTransmission();
+      }
       mode = 'D';
   }
 
@@ -139,6 +151,7 @@ void loop(void) {
     //Light modes:
     //1, 2, 3, A
     //4, 5, 6, B
+    //7
     case '2':
       // Set the mode message
       if(newmode){
@@ -182,12 +195,75 @@ void loop(void) {
             strip.SetPixelColor(i, COLOR_GREEN);
           }
           else{
+            // Key is up
             strip.SetPixelColor(i, COLOR_BLUE);
           }
         }
         
         strip.Show();
       }
+      break;
+    }
+
+    case '7': {
+      // Set the mode message
+      if(newmode){
+        displayUpdate("Zinthesizer");
+        for (uint16_t pixel = 0; pixel < 16; pixel++) { strip.SetPixelColor(pixel, COLOR_RED); }
+        newmode = false;
+      }
+
+      if (keys->getState('D') != HOLD) {
+        // Turn off any animations
+        animations.StopAnimation(0);
+        delay(1);
+
+        // Get a copy of the keymap
+        uint16_t map = 0;
+        for(uint8_t i = 0; i < 4; i++){
+          map |= ((keys->bitMap[i] & 0x0F) << (i * 4));
+        }
+
+        // Determine if a pixel needs to be on or off
+        for(uint8_t i = 0; i < 16; i++){
+          if((map >> i) & 0x01){
+            // Key is down
+            if (i != currPressed) {
+              // set old key back to red
+              strip.SetPixelColor(currPressed, COLOR_RED);
+              
+              // handle new key press
+              currPressed = i;
+              strip.SetPixelColor(i, COLOR_PURPLE);
+              // trigger synth val by midi note
+              Wire.beginTransmission(ZINTH_ADD_ON_ADDR);
+              Wire.write(52+i); // midi note
+              Wire.write(100); // volume
+              Wire.endTransmission();
+            } else {
+              // don't change anything
+              break;
+            }
+          } else if (i == currPressed) {
+            // Key is up
+            currPressed = 16;
+            strip.SetPixelColor(i, COLOR_RED);
+            Wire.beginTransmission(ZINTH_ADD_ON_ADDR);
+            Wire.write(129); // 129: note off
+            Wire.write(100); // volume doesn't really matter
+            Wire.endTransmission();
+          }
+        }
+        
+        strip.Show();
+      } else {
+        // turn off APU before quitting
+        Wire.beginTransmission(ZINTH_ADD_ON_ADDR);
+        Wire.write(129); // 129: note off
+        Wire.write(100); // volume doesn't really matter
+        Wire.endTransmission();
+      }
+      
       break;
     }
 

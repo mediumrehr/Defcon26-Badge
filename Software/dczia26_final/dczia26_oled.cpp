@@ -204,7 +204,7 @@ void oled_displayCredits(Adafruit_SSD1306 *screen){
   screen->setCursor(0, 0);
   screen->println("Credits!");
   screen->setTextSize(1);
-  screen->print("catblade, joe...");
+  screen->println("catblade, joe, rehr..");
   screen->display();
   delay(2000);
   screen->clearDisplay();
